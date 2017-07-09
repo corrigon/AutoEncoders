@@ -69,6 +69,10 @@ class AutoEncoder(object):
         print('not implemented')
         raise
 
+    def train_init(self, num_epochs):
+        print('not implemented')
+        raise
+
     def train_epoch(self, epoch_size, batch_size, train_batches, test_batches):
         print('not implemented')
         raise
@@ -78,10 +82,6 @@ class AutoEncoder(object):
         raise
 
     def reconstruct_imgs(self, imgs):
-        print('not implemented')
-        raise
-
-    def train_init(self, num_epochs):
         print('not implemented')
         raise
 
@@ -105,8 +105,8 @@ class AutoEncoder(object):
                 save_samples(all_samples, 10, path+'/reconstruct.jpg')
 
     def train(self, test_samples, hdf5_path, base_path, num_epochs=1000, \
-            epochsize=300, batchsize=64):
-        self.train_init(num_epochs)
+            epochsize=300, batchsize=64, **kwargs):
+        self.train_init(num_epochs, batchsize, **kwargs)
         if not os.path.exists(base_path):
             os.mkdir(base_path)
         # Load the dataset
@@ -116,7 +116,6 @@ class AutoEncoder(object):
         train_indices = np.array(range(test_samples, imgs.shape[0]))
         train_batches = iterate_minibatches_hdf5(imgs, train_indices, batchsize,
             shuffle=False, forever=True)
-
         for epoch in range(num_epochs):
             start_time = time.time()
             test_batches = iterate_minibatches_hdf5(imgs, test_indices, batchsize,

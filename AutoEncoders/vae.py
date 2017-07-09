@@ -289,6 +289,78 @@ class VAE(AutoEncoder):
         _params.update(__params)
         return l_dec_mu, l_dec_logsigma, _params
 
+    def build_decoder_conv2d_no_dense_64_hidden(self, l_Z, params):
+        from lasagne.layers import InputLayer, ReshapeLayer, DenseLayer
+        try:
+            from lasagne.layers import TransposedConv2DLayer as Deconv2DLayer
+        except ImportError:
+            raise ImportError("Your Lasagne is too old. Try the bleeding-edge "
+                              "version: http://lasagne.readthedocs.io/en/latest/"
+                              "user/installation.html#bleeding-edge-version")
+        try:
+            from lasagne.layers.dnn import batch_norm_dnn as batch_norm
+        except ImportError:
+            from lasagne.layers import batch_nor
+        from lasagne.nonlinearities import sigmoid
+        from lasagne.nonlinearities import LeakyRectify
+        lalpha = 0.2
+        lrelu = LeakyRectify(lalpha)
+        # fully-connected layer
+        layer = batch_norm(DenseLayer(l_Z, 1024, nonlinearity=lrelu,
+                W=nn.init.GlorotUniform() if params is None else params['w1'],
+                b=nn.init.Constant(0.) if params is None else params['b1'],
+        )) # original with relu
+        _params = {}
+        _params['w1'] = layer.input_layer.input_layer.W
+        _params['b1'] = layer.input_layer.input_layer.b
+        # project and reshape
+        layer = batch_norm(DenseLayer(layer, 128*8*8, nonlinearity=lrelu,
+            W=nn.init.GlorotUniform() if params is None else params['w2'],
+            b=nn.init.Constant(0.) if params is None else params['b2'],
+        )) # original with relu
+        _params['w2'] = layer.input_layer.input_layer.W
+        _params['b2'] = layer.input_layer.input_layer.b
+        layer = ReshapeLayer(layer, ([0], 128, 8, 8))
+        # two fractional-stride convolutions
+        layer = batch_norm(Deconv2DLayer(layer, 128, 5, stride=2, crop='same',
+                        output_size=16, nonlinearity=lrelu,
+                        W=nn.init.GlorotNormal(np.sqrt(2/(1+lalpha**2))) if params is None else params['w3'],
+                        b=nn.init.Constant(0.) if params is None else params['b3']
+                                         )) # original with relu
+        _params['w3'] = layer.input_layer.input_layer.W
+        _params['b3'] = layer.input_layer.input_layer.b
+        _layer = batch_norm(Deconv2DLayer(layer, 64, 5, stride=2, crop='same',
+                        output_size=32, nonlinearity=lrelu,
+                        W=nn.init.GlorotNormal(np.sqrt(2/(1+lalpha**2))) if params is None else params['w4'],
+                        b=nn.init.Constant(0.) if params is None else params['b4']
+                                         )) # original with relu
+        _params['w4'] = _layer.input_layer.input_layer.W
+        _params['b4'] = _layer.input_layer.input_layer.b
+
+        layer = Deconv2DLayer(_layer, self.channels, 5, stride=2, crop='same', output_size=64,
+                            nonlinearity=None, untie_biases=True,
+                            W=nn.init.GlorotNormal() if params is None else params['w_mu'],
+                            b=nn.init.Constant(0.) if params is None else params['b_mu']
+                              )
+        #                   W=nn.init.GlorotUniform() if params is None else params['w_mu'],
+        _params['w_mu'] = layer.W
+        _params['b_mu'] = layer.b
+        l_dec_mu = ReshapeLayer(layer, ([0], self.width*self.height*self.channels))
+        # relu_shift is for numerical stability - if training data has any
+        # dimensions where stdev=0, allowing logsigma to approach -inf
+        # will cause the loss function to become NAN. So we set the limit
+        # stdev >= exp(-1 * relu_shift)
+        relu_shift = 10
+        layer = Deconv2DLayer(_layer, self.channels, 5, stride=2, crop='same', output_size=64,
+                            nonlinearity = lambda a: T.nnet.relu(a+relu_shift)-relu_shift,
+                            W=nn.init.GlorotUniform() if params is None else params['w_logsigma'],
+                            b=nn.init.Constant(0.) if params is None else params['b_logsigma']
+                              )
+        _params['w_logsigma'] = layer.W
+        _params['b_logsigma'] = layer.b
+        l_dec_logsigma = ReshapeLayer(layer, ([0], self.width*self.height*self.channels))
+        return l_dec_mu, l_dec_logsigma, _params
+
     def build_encoder_conv2d_128_hidden(self, l_input):
         from lasagne.nonlinearities import sigmoid
         from lasagne.nonlinearities import LeakyRectify
@@ -313,6 +385,84 @@ class VAE(AutoEncoder):
 
     def build_decoder_conv2d_128_hidden(self, l_Z, params):
         from lasagne.layers import InputLayer, ReshapeLayer, DenseLayer
+        try:
+            from lasagne.layers import TransposedConv2DLayer as Deconv2DLayer
+        except ImportError:
+            raise ImportError("Your Lasagne is too old. Try the bleeding-edge "
+                              "version: http://lasagne.readthedocs.io/en/latest/"
+                              "user/installation.html#bleeding-edge-version")
+        try:
+            from lasagne.layers.dnn import batch_norm_dnn as batch_norm
+        except ImportError:
+            from lasagne.layers import batch_norm
+        from lasagne.nonlinearities import sigmoid
+        from lasagne.nonlinearities import LeakyRectify
+        lalpha = 0.2
+        lrelu = LeakyRectify(0.2)
+        # fully-connected layer
+        # 1024 <-> 4096
+        layer = batch_norm(DenseLayer(l_Z, 4096, nonlinearity=lrelu,
+                W=nn.init.GlorotUniform() if params is None else params['w1'],
+                b=nn.init.Constant(0.) if params is None else params['b1'],
+        )) # original with relu 
+        _params = {}
+        _params['w1'] = layer.input_layer.input_layer.W
+        _params['b1'] = layer.input_layer.input_layer.b
+        # project and reshape
+        # shape 1024
+        layer = batch_norm(DenseLayer(layer, 256*8*8, nonlinearity=lrelu,
+            W=nn.init.GlorotUniform() if params is None else params['w2'],
+            b=nn.init.Constant(0.) if params is None else params['b2'],
+        # shape 256x8x8
+        )) # original with relu
+        _params['w2'] = layer.input_layer.input_layer.W
+        _params['b2'] = layer.input_layer.input_layer.b
+        layer = ReshapeLayer(layer, ([0], 256, 8, 8))
+        # two fractional-stride convolutions
+        layer = batch_norm(Deconv2DLayer(layer, 256, 7, stride=4, crop='same',
+                        output_size=32, nonlinearity=lrelu,
+                        W=nn.init.GlorotUniform() if params is None else params['w3'],
+                        b=nn.init.Constant(0.) if params is None else params['b3']
+                                         )) # original with relu
+        # shape 256x32x32
+        _params['w3'] = layer.input_layer.input_layer.W
+        _params['b3'] = layer.input_layer.input_layer.b
+        _layer = batch_norm(Deconv2DLayer(layer, 128, 5, stride=2, crop='same',
+                        output_size=64, nonlinearity=lrelu, untie_biases=True,
+                        W=nn.init.GlorotUniform() if params is None else params['w4'],
+                        b=nn.init.Constant(0.) if params is None else params['b4']
+                                         )) # original with relu
+        # shape 128x64x64
+        _params['w4'] = _layer.input_layer.input_layer.W
+        _params['b4'] = _layer.input_layer.input_layer.b
+#                            nonlinearity=sigmoid,
+        layer = Deconv2DLayer(_layer, self.channels, 5, stride=2, crop='same', output_size=128,
+                            nonlinearity=None, untie_biases=True,
+                            W=nn.init.GlorotUniform() if params is None else params['w_mu'],
+                            b=nn.init.Constant(0.) if params is None else params['b_mu']
+                              )
+        _params['w_mu'] = layer.W
+        _params['b_mu'] = layer.b
+        l_dec_mu = ReshapeLayer(layer, ([0], self.width*self.height*self.channels))
+        # relu_shift is for numerical stability - if training data has any
+        # dimensions where stdev=0, allowing logsigma to approach -inf
+        # will cause the loss function to become NAN. So we set the limit
+        # stdev >= exp(-1 * relu_shift)
+        relu_shift = 10
+        layer = Deconv2DLayer(_layer, self.channels, 5, stride=2, crop='same', output_size=128,
+                            nonlinearity = lambda a: T.nnet.relu(a+relu_shift)-relu_shift,
+                            W=nn.init.GlorotUniform() if params is None else params['w_logsigma'],
+                            b=nn.init.Constant(0.) if params is None else params['b_logsigma']
+                              )
+        _params['w_logsigma'] = layer.W
+        _params['b_logsigma'] = layer.b
+        l_dec_logsigma = ReshapeLayer(layer, ([0], self.width*self.height*self.channels))
+        # shape 3x128x128
+        return l_dec_mu, l_dec_logsigma, _params
+
+    def build_decoder_conv2d_128_local_hidden(self, l_Z, params):
+        from lasagne.layers import InputLayer, ReshapeLayer, DenseLayer
+        from LocallyConnected2DLayer import LocallyConnected2DLayer
         try:
             from lasagne.layers import TransposedConv2DLayer as Deconv2DLayer
         except ImportError:
@@ -353,18 +503,16 @@ class VAE(AutoEncoder):
         # shape 256x32x32
         _params['w3'] = layer.input_layer.input_layer.W
         _params['b3'] = layer.input_layer.input_layer.b
-        _layer = batch_norm(Deconv2DLayer(layer, 128, 5, stride=2, crop='same',
-                        output_size=64, nonlinearity=lrelu,
+        _layer = batch_norm(Deconv2DLayer(layer, 64, 9, stride=4, crop='same',
+                        output_size=128, nonlinearity=lrelu,
                         W=nn.init.GlorotUniform() if params is None else params['w4'],
                         b=nn.init.Constant(0.) if params is None else params['b4']
                                          )) # original with relu
         # shape 128x64x64
         _params['w4'] = _layer.input_layer.input_layer.W
         _params['b4'] = _layer.input_layer.input_layer.b
-#                            nonlinearity=sigmoid,
-        layer = Deconv2DLayer(_layer, self.channels, 5, stride=2, crop='same', output_size=128,
-                            nonlinearity=None,
-                            untie_biases = True,
+        layer = LocallyConnected2DLayer(_layer, self.channels, 7, stride=1, pad='same',
+                            nonlinearity=sigmoid, untie_biases=True,
                             W=nn.init.GlorotUniform() if params is None else params['w_mu'],
                             b=nn.init.Constant(0.) if params is None else params['b_mu']
                               )
@@ -376,7 +524,7 @@ class VAE(AutoEncoder):
         # will cause the loss function to become NAN. So we set the limit
         # stdev >= exp(-1 * relu_shift)
         relu_shift = 10
-        layer = Deconv2DLayer(_layer, self.channels, 5, stride=2, crop='same', output_size=128,
+        layer = LocallyConnected2DLayer(_layer, self.channels, 7, stride=1, pad='same',
                             nonlinearity = lambda a: T.nnet.relu(a+relu_shift)-relu_shift,
                             W=nn.init.GlorotUniform() if params is None else params['w_logsigma'],
                             b=nn.init.Constant(0.) if params is None else params['b_logsigma']
@@ -386,7 +534,6 @@ class VAE(AutoEncoder):
         l_dec_logsigma = ReshapeLayer(layer, ([0], self.width*self.height*self.channels))
         # shape 3x128x128
         return l_dec_mu, l_dec_logsigma, _params
-
     def build_vae(self, inputvar, L=2, binary=True, imgshape=(28,28), \
             encoder_type='single_layer', decoder_type='single_layer', channels=1, z_dim=2, n_hid=1024):
         self.L = L
@@ -433,8 +580,12 @@ class VAE(AutoEncoder):
                 l_dec_mu, l_dec_logsigma, decoder_params = self.build_decoder_conv2d_32_hidden(l_Z, decoder_params)
             elif decoder_type=='conv2d_64_layer':
                 l_dec_mu, l_dec_logsigma, decoder_params = self.build_decoder_conv2d_64_hidden(l_Z, decoder_params)
+            elif decoder_type=='conv2d_64_no_dense_layer':
+                l_dec_mu, l_dec_logsigma, decoder_params = self.build_decoder_conv2d_no_dense_64_hidden(l_Z, decoder_params)
             elif decoder_type=='conv2d_128_layer':
                 l_dec_mu, l_dec_logsigma, decoder_params = self.build_decoder_conv2d_128_hidden(l_Z, decoder_params)
+            elif decoder_type=='conv2d_128_local_layer':
+                l_dec_mu, l_dec_logsigma, decoder_params = self.build_decoder_conv2d_128_local_hidden(l_Z, decoder_params)
             else:
                 print('unknown decoder type '+decoder_type)
                 raise
@@ -466,6 +617,7 @@ class VAE(AutoEncoder):
 
     def compile_inference_funcs(self):
         print('Compiling inference functions')
+        self.params_train = nn.layers.get_all_params(self.l_x, trainable=True)
         if self.binary:
             self.generated_x = nn.layers.get_output(self.l_x, {self.l_z_mu:self.z_var}, deterministic=True)
         else:
@@ -530,7 +682,7 @@ class VAE(AutoEncoder):
         loss = -1 * (logpxz + kl_div)
         return loss, prediction
 
-    def train_init(self, num_epochs):
+    def train_init(self, num_epochs, batchsize):
         # Create VAE model
         print("Building model and compiling functions...")
         print("L = {}, z_dim = {}, n_hid = {}, binary={}".format(self.L, self.z_dim,
@@ -543,11 +695,12 @@ class VAE(AutoEncoder):
         # If there are dropout layers etc these functions return masked or non-masked expressions
         # depending on if they will be used for training or validation/test err calcs
         self.loss, _ = self.build_loss(deterministic=False)
+        grad = theano.gradient.grad(self.loss, self.params_train)
+        self.grad_fn = theano.function([self.input_var], grad)
         self.test_loss, self.test_prediction = self.build_loss(deterministic=True)
 
         # ADAM updates
-        params = nn.layers.get_all_params(self.l_x, trainable=True)
-        updates = nn.updates.adam(self.loss, params, learning_rate=1e-4)
+        updates = nn.updates.adam(self.loss, self.params_train, learning_rate=7e-5)
         self.train_fn = theano.function([self.input_var], self.loss, updates=updates)
         self.generated_x = nn.layers.get_output(self.l_x_mu_list[0], {self.l_z_mu:self.z_var},
                 deterministic=True)
@@ -561,6 +714,7 @@ class VAE(AutoEncoder):
     def train_epoch(self, epoch_size, batch_size, train_batches, test_batches):
         start_time = time.time()
         n_train_batches = 0
+        self.train_err = 0
         for _ in range(epoch_size):
             batch = next(train_batches)
             this_err = self.train_fn(batch)

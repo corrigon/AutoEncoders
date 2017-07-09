@@ -327,7 +327,7 @@ class VAE(AutoEncoder):
         from lasagne.nonlinearities import LeakyRectify
         lrelu = LeakyRectify(0.2)
         # fully-connected layer
-        layer = batch_norm(DenseLayer(l_Z, 1024, nonlinearity=lrelu,
+        layer = batch_norm(DenseLayer(l_Z, 4096, nonlinearity=lrelu,
                 W=nn.init.GlorotUniform() if params is None else params['w1'],
                 b=nn.init.Constant(0.) if params is None else params['b1'],
         )) # original with relu
@@ -361,8 +361,10 @@ class VAE(AutoEncoder):
         # shape 128x64x64
         _params['w4'] = _layer.input_layer.input_layer.W
         _params['b4'] = _layer.input_layer.input_layer.b
+#                            nonlinearity=sigmoid,
         layer = Deconv2DLayer(_layer, self.channels, 5, stride=2, crop='same', output_size=128,
-                            nonlinearity=sigmoid,
+                            nonlinearity=None,
+                            untie_biases = True,
                             W=nn.init.GlorotUniform() if params is None else params['w_mu'],
                             b=nn.init.Constant(0.) if params is None else params['b_mu']
                               )
@@ -472,6 +474,9 @@ class VAE(AutoEncoder):
         self.gen_fn = theano.function([self.z_var], self.generated_x)
         z_mu = nn.layers.get_output([self.l_z_mu], deterministic=True)
         self.encode_fn = theano.function([self.input_var], z_mu)
+        self.test_loss, self.test_prediction = self.build_loss(deterministic=True)
+        self.val_fn = theano.function([self.input_var], self.test_loss)
+        self.pred_fn = theano.function([self.input_var], self.test_prediction)
 
     def reconstruct_imgs(self, imgs):
         return self.pred_fn(imgs).reshape(-1, self.channels, self.width, self.height)
@@ -484,7 +489,7 @@ class VAE(AutoEncoder):
         if imgs.shape[0]<1000:
             if net_order==False:
                 imgs = imgs_to_net(imgs)
-            return self.encode_fn(imgs)
+            return self.encode_fn(imgs)[0]
         z = np.zeros([imgs.shape[0], self.z_dim], dtype='float32')
         for idx in range(0, imgs.shape[0], batch_size):
             count = min(batch_size, imgs.shape[0]-idx)

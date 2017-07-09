@@ -1,4 +1,4 @@
-from vae import VAE
+from AutoEncoders.vae import VAE
 from model_ae import EncoderModel
 from autoencoder import imgs_to_net, imgs_from_net
 
